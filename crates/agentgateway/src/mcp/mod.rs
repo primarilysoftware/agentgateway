@@ -236,13 +236,17 @@ impl Error {
 				}
 				return tool_error_body(request_id, text, *downstream_modern);
 			},
-			// internal error sure looks like a protocol error so making the decision to bubble it back up
+			// internal error sure looks like a protocol error so making the decision to bubble it back up.
+			// Explicit errors from the processor (`mcp_error`) are protocol errors too, so they are
+			// returned as-is; only the derived denials become tool results.
 			Error::McpGuardrails {
 				request_id,
 				rej,
 				was_tool_call: true,
 				downstream_modern,
-			} if rej.code != ErrorCode::INTERNAL_ERROR => {
+			} if rej.code != ErrorCode::INTERNAL_ERROR
+				&& guardrails::is_derived_rejection_code(rej.code) =>
+			{
 				return tool_error_body(request_id, rej.message.to_string(), *downstream_modern);
 			},
 			_ => {},

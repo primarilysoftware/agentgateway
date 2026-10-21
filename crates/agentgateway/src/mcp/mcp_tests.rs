@@ -8230,6 +8230,68 @@ async fn mcp_guardrails_tool_call_reject_is_error() {
 	assert_eq!(text, "denied by mock mcpGuardrails");
 }
 
+/// A processor can supply the whole JSON-RPC error through `mcp_error`, for example URL
+/// elicitation required (-32042). It is returned as a protocol error, not rewritten into a
+/// tool result.
+#[tokio::test]
+async fn mcp_guardrails_tool_call_explicit_mcp_error_is_returned() {
+	use protos::ext_mcp::authorization_error::Code;
+
+	use crate::test_helpers::extmcpmock::{
+		closure_mock, pass_response, reject_request_with_mcp_error,
+	};
+
+	let elicitation = serde_json::json!({
+		"code": -32042,
+		"message": "Approval required",
+		"data": {"elicitations": [{
+			"mode": "url",
+			"elicitationId": "approval-1",
+			"url": "https://approvals.example.com/1",
+			"message": "Approve this call"
+		}]}
+	});
+	let extmcp_mock = closure_mock(
+		move |_| {
+			reject_request_with_mcp_error(Code::PermissionDenied, "Approval required", elicitation.clone())
+		},
+		|_| pass_response(),
+	)
+	.spawn()
+	.await;
+
+	let mock = mock_streamable_http_server(true).await;
+	let (_bind, io) = setup_proxy_policies(
+		&mock,
+		true,
+		false,
+		vec![guardrails_test_support::policy(extmcp_mock.address)],
+	)
+	.await;
+	let client = mcp_streamable_client(io).await;
+	let result = client
+		.call_tool(
+			rmcp::model::CallToolRequestParams::new("echo").with_arguments(
+				serde_json::json!({"hi": "world"})
+					.as_object()
+					.cloned()
+					.unwrap(),
+			),
+		)
+		.await;
+	let mcp_error = match result.expect_err("an explicit mcp_error is a protocol error") {
+		rmcp::ServiceError::McpError(mcp_error) => mcp_error,
+		other => panic!("Expected ServiceError::McpError, got: {:?}", other),
+	};
+
+	assert_eq!(mcp_error.code.0, -32042);
+	assert_eq!(mcp_error.message.as_ref(), "Approval required");
+	assert_eq!(
+		mcp_error.data.as_ref().unwrap()["elicitations"][0]["url"],
+		"https://approvals.example.com/1"
+	);
+}
+
 #[tokio::test]
 async fn mcp_guardrails_denies_tool_by_name() {
 	use protos::ext_mcp::authorization_error::Code;

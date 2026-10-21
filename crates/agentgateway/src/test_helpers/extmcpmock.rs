@@ -39,6 +39,24 @@ pub fn reject_request(
 	})
 }
 
+/// Reject with an explicit JSON-RPC error payload (`mcp_error`), which overrides the
+/// code-derived error.
+pub fn reject_request_with_mcp_error(
+	code: ErrCode,
+	reason: impl Into<String>,
+	mcp_error: serde_json::Value,
+) -> Result<McpRequestResult, Status> {
+	Ok(McpRequestResult {
+		result: Some(mcp_request_result::Result::Error(AuthorizationError {
+			code: code as i32,
+			reason: reason.into(),
+			mcp_error: Some(serde_json::to_vec(&mcp_error).unwrap().into()),
+		})),
+		header_mutation: None,
+		metadata: None,
+	})
+}
+
 pub fn reject_response(
 	code: ErrCode,
 	reason: impl Into<String>,

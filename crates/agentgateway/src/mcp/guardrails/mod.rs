@@ -36,6 +36,7 @@ impl McpGuardrailsDynamicMetadata {
 }
 
 mod client;
+pub(crate) use client::is_derived_rejection_code;
 mod expression;
 pub mod methods;
 pub mod phase;

@@ -356,8 +356,27 @@ fn collect_headers(
 // -32002 is intentionally skipped: rmcp assigns it to RESOURCE_NOT_FOUND.
 pub(super) const PERMISSION_DENIED: ErrorCode = ErrorCode(-32001);
 
+/// Whether a rejection carries one of the codes derived from `AuthorizationError.code`, rather
+/// than an explicit JSON-RPC error supplied by the processor through `mcp_error`.
+pub(crate) fn is_derived_rejection_code(code: ErrorCode) -> bool {
+	code == PERMISSION_DENIED
+		|| code == crate::mcp::RESOURCE_EXHAUSTED
+		|| code == ErrorCode::INVALID_REQUEST
+		|| code == ErrorCode::INTERNAL_ERROR
+}
+
 fn translate_error(method: &str, backends: &[String], e: AuthorizationError) -> ErrorData {
 	use wire::authorization_error::Code as C;
+	// An `mcp_error` that is a complete JSON-RPC error object (`code`, `message`, optional `data`)
+	// overrides the code-derived default, as documented on the proto. This is how a processor asks
+	// for a specific protocol error, such as URL elicitation required (-32042).
+	if let Some(explicit) = e
+		.mcp_error
+		.as_deref()
+		.and_then(|b| serde_json::from_slice::<ErrorData>(b).ok())
+	{
+		return explicit;
+	}
 	let code = match C::try_from(e.code).unwrap_or(C::Unknown) {
 		C::PermissionDenied => PERMISSION_DENIED,
 		C::ResourceExhausted => crate::mcp::RESOURCE_EXHAUSTED,
